@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AstralPrism — DeFi Bot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="/static/styles.css"/>
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">
+        <span class="logo-icon">◈</span>
+        <span class="logo-text">AstralPrism</span>
+        <span class="logo-sub">DeFi Bot</span>
+      </div>
+      <div class="network-badge">
+        <span class="dot dot--devnet"></span>
+        <span>Solana Devnet</span>
+      </div>
+    </div>
+    <div class="header-center">
+      <div class="model-pill">
+        <span class="model-icon">⬡</span>
+        <span id="modelLabel">nvidia/nemotron-3-super-120b-a12b</span>
+        <span class="model-sep">|</span>
+        <span id="modeLabel" class="mode-tag">DEMO</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="status-cluster">
+        <span id="statusDot" class="dot dot--connecting"></span>
+        <span id="statusLabel">Connecting...</span>
+      </div>
+      <button id="btnPause" class="btn btn--ghost" onclick="togglePause()">⏸ Pause Bot</button>
+      <button class="btn btn--primary" onclick="requestAirdrop()">⚡ Airdrop SOL</button>
+    </div>
+  </header>
+
+  <!-- Main Grid -->
+  <main class="grid">
+
+    <!-- Left: Price Feed -->
+    <aside class="panel panel--tokens">
+      <div class="panel-title">Live Prices <span class="tag tag--live">LIVE</span></div>
+      <div id="tokenCards" class="token-list">
+        <div class="token-card skeleton"></div>
+        <div class="token-card skeleton"></div>
+        <div class="token-card skeleton"></div>
+        <div class="token-card skeleton"></div>
+      </div>
+
+      <!-- Wallet info -->
+      <div class="panel-title mt-16">Devnet Wallet</div>
+      <div class="wallet-box">
+        <div class="wallet-addr" id="walletAddr">Loading...</div>
+        <div class="wallet-row">
+          <span>Balance</span>
+          <span id="devnetSol" class="mono">— SOL</span>
+        </div>
+        <a id="explorerLink" href="#" target="_blank" class="explorer-link">View on Explorer ↗</a>
+      </div>
+    </aside>
+
+    <!-- Center: Chart + Signal -->
+    <section class="panel panel--chart">
+      <div class="chart-header">
+        <div class="chart-tabs" id="chartTabs">
+          <button class="chart-tab active" onclick="switchChart('SOL')">SOL</button>
+          <button class="chart-tab" onclick="switchChart('JUP')">JUP</button>
+          <button class="chart-tab" onclick="switchChart('BONK')">BONK</button>
+          <button class="chart-tab" onclick="switchChart('WIF')">WIF</button>
+        </div>
+        <div id="chartMeta" class="chart-meta"></div>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="priceChart"></canvas>
+      </div>
+
+      <!-- AI Signal Bar -->
+      <div class="signal-bar" id="signalBar">
+        <div class="signal-icon" id="signalIcon">—</div>
+        <div class="signal-details">
+          <div class="signal-main">
+            <span id="signalLabel">Awaiting Nemotron analysis...</span>
+            <span id="signalToken" class="signal-token"></span>
+          </div>
+          <div id="signalReason" class="signal-reason">Model is warming up...</div>
+        </div>
+        <div class="signal-stats">
+          <div class="stat">
+            <div class="stat-val" id="confVal">—</div>
+            <div class="stat-key">Confidence</div>
+          </div>
+          <div class="stat">
+            <div class="stat-val" id="riskVal">—</div>
+            <div class="stat-key">Risk</div>
+          </div>
+          <div class="stat">
+            <div class="stat-val" id="condVal">—</div>
+            <div class="stat-key">Market</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Thinking Overlay -->
+      <div id="thinkingOverlay" class="thinking-overlay hidden">
+        <div class="thinking-spinner"></div>
+        <span>Nemotron 3 Super is reasoning...</span>
+      </div>
+    </section>
+
+    <!-- Right: Portfolio + Manual Trade -->
+    <aside class="panel panel--right">
+      <div class="panel-title">Portfolio</div>
+      <div class="portfolio-grid">
+        <div class="port-card">
+          <div class="port-val" id="portTotal">$0.00</div>
+          <div class="port-key">Total Value</div>
+        </div>
+        <div class="port-card">
+          <div class="port-val" id="portPnl">$0.00</div>
+          <div class="port-key">P&amp;L</div>
+        </div>
+        <div class="port-card">
+          <div class="port-val" id="portSol">0.00</div>
+          <div class="port-key">SOL</div>
+        </div>
+        <div class="port-card">
+          <div class="port-val" id="portUsdc">$0.00</div>
+          <div class="port-key">USDC</div>
+        </div>
+      </div>
+
+      <!-- Manual Trade Panel -->
+      <div class="panel-title mt-16">Manual Trade</div>
+      <div class="trade-form">
+        <div class="form-row">
+          <select id="tradeToken" class="form-select">
+            <option>SOL</option><option>JUP</option><option>BONK</option><option>WIF</option>
+          </select>
+          <input id="tradeSize" type="number" value="10" min="1" max="100" class="form-input" placeholder="Size %"/>
+        </div>
+        <div class="form-row">
+          <button class="btn btn--buy" onclick="manualTrade('BUY')">▲ BUY</button>
+          <button class="btn btn--sell" onclick="manualTrade('SELL')">▼ SELL</button>
+        </div>
+      </div>
+
+      <!-- PnL Chart -->
+      <div class="panel-title mt-16">P&amp;L History</div>
+      <div class="pnl-chart-wrap">
+        <canvas id="pnlChart"></canvas>
+      </div>
+    </aside>
+
+    <!-- Bottom: Trade History -->
+    <section class="panel panel--trades">
+      <div class="panel-title">
+        Trade History
+        <span id="tradeCount" class="tag">0 trades</span>
+      </div>
+      <div class="table-wrap">
+        <table class="trade-table">
+          <thead>
+            <tr>
+              <th>#</th><th>Time</th><th>Side</th><th>Token</th>
+              <th>Size</th><th>Price</th><th>Cost</th>
+              <th>Confidence</th><th>Market</th><th>Route</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="tradeBody">
+            <tr><td colspan="11" class="empty-row">No trades yet — bot is analysing markets...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Toast container -->
+  <div id="toasts"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
