@@ -103,9 +103,15 @@ async def manual_trade(req: TradeRequest):
 
 @app.post("/api/airdrop")
 async def request_airdrop():
-    ok = await engine.sol_cli.request_airdrop(1.0)
+    result = await engine.sol_cli.request_airdrop(1.0)
     bal = await engine.sol_cli.get_devnet_sol()
-    return {"success": ok, "balance": bal}
+    return {
+        "success":   result.get("success", False),
+        "balance":   bal,
+        "amount":    result.get("amount", 0),
+        "faucetUrl": result.get("faucetUrl", ""),
+        "message":   result.get("message", ""),
+    }
 
 
 @app.get("/api/trades")

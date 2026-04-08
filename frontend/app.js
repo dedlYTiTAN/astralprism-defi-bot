@@ -416,13 +416,24 @@ async function togglePause() {
 }
 
 async function requestAirdrop() {
-  toast('Requesting 1 SOL airdrop from devnet...', 'info');
+  toast('Requesting 1 SOL airdrop from devnet (retrying up to 3x)...', 'info');
   try {
     const r = await fetch('/api/airdrop', { method: 'POST' });
     const d = await r.json();
     if (d.success) {
       document.getElementById('devnetSol').textContent = d.balance.toFixed(4) + ' SOL';
-      toast(`Airdrop received! Balance: ${d.balance.toFixed(4)} SOL`, 'buy');
+      toast(`Airdrop received! ${d.amount} SOL — Balance: ${d.balance.toFixed(4)} SOL`, 'buy');
+    } else if (d.faucetUrl) {
+      // Show faucet link as clickable toast
+      const el = document.createElement('div');
+      el.className = 'toast info';
+      el.innerHTML = `<strong>Devnet rate-limited</strong><br/>
+        <span style="font-size:12px;color:#8899aa">Use the web faucet instead:</span><br/>
+        <a href="${d.faucetUrl}" target="_blank" 
+           style="color:var(--accent);font-size:12px;word-break:break-all">
+          faucet.solana.com ↗</a>`;
+      document.getElementById('toasts').prepend(el);
+      setTimeout(() => el.remove(), 8000);
     } else {
       toast('Airdrop failed — devnet may be rate-limiting', 'info');
     }

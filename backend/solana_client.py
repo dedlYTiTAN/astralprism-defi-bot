@@ -61,8 +61,11 @@ class SolanaClient:
             json.dump(self.keypair, f)
         logger.info(f"Created new devnet wallet: {pubkey}")
 
-    async def request_airdrop(self, sol_amount: float = 1.0) -> bool:
-        """Request SOL airdrop from Solana devnet faucet."""
+    async def request_airdrop(self, sol_amount: float = 1.0) -> dict:
+        """
+        Request SOL airdrop with retry logic.
+        Returns dict with success status and faucet fallback URL.
+        """
         lamports = int(sol_amount * 1_000_000_000)
         payload = {
             "jsonrpc": "2.0",
@@ -70,21 +73,40 @@ class SolanaClient:
             "method": "requestAirdrop",
             "params": [self.public_key, lamports],
         }
-        try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                resp = await client.post(self._rpc, json=payload)
-                data = resp.json()
-                if "result" in data:
-                    logger.info(f"Airdrop requested: {sol_amount} SOL → {self.public_key}")
-                    await asyncio.sleep(2)  # wait for confirmation
-                    await self._refresh_devnet_balance()
-                    return True
-                elif "error" in data:
-                    logger.warning(f"Airdrop failed: {data['error']}")
-                    return False
-        except Exception as e:
-            logger.error(f"Airdrop error: {e}")
-            return False
+
+        # Try up to 3 times with decreasing amounts
+        attempts = [
+            (sol_amount, lamports),
+            (0.5, int(0.5 * 1_000_000_000)),
+            (0.1, int(0.1 * 1_000_000_000)),
+        ]
+
+        for amt, lamps in attempts:
+            payload["params"] = [self.public_key, lamps]
+            try:
+                async with httpx.AsyncClient(timeout=20.0) as client:
+                    resp = await client.post(self._rpc, json=payload)
+                    data = resp.json()
+                    if "result" in data:
+                        logger.info(f"Airdrop succeeded: {amt} SOL → {self.public_key}")
+                        await asyncio.sleep(2)
+                        await self._refresh_devnet_balance()
+                        return {"success": True, "amount": amt}
+                    elif "error" in data:
+                        logger.warning(f"Airdrop attempt ({amt} SOL) failed: {data['error']}")
+                        await asyncio.sleep(1)
+            except Exception as e:
+                logger.warning(f"Airdrop attempt ({amt} SOL) error: {e}")
+                await asyncio.sleep(1)
+
+        # All retries failed — return faucet fallback
+        faucet_url = f"https://faucet.solana.com/?wallet={self.public_key}"
+        logger.warning(f"All airdrop attempts failed. Use web faucet: {faucet_url}")
+        return {
+            "success": False,
+            "faucetUrl": faucet_url,
+            "message": "Devnet rate-limited. Use the web faucet instead.",
+        }
 
     async def _refresh_devnet_balance(self):
         """Query actual SOL balance on devnet."""
