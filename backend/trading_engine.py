@@ -9,18 +9,23 @@ import logging
 import time
 from collections import deque
 from typing import Optional
+import httpx
 
 from config import (
     ANALYSIS_INTERVAL_SEC,
     PRICE_POLL_INTERVAL,
     PRICE_HISTORY_MAX,
     MAX_SLIPPAGE_BPS,
+    MAX_LOSS_USD,
     TRADING_PAIRS,
     TOKENS,
+    LIVE_MODE,
+    WALLET_PRIVATE_KEY,
 )
 from jupiter_client import JupiterClient
 from nemotron_client import NemotronClient
 from solana_client import SolanaClient, DemoPortfolio
+from live_portfolio import LivePortfolio
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +35,29 @@ class TradingEngine:
         self.jup      = JupiterClient()
         self.nem      = NemotronClient()
         self.sol_cli  = SolanaClient()
-        self.portfolio = DemoPortfolio()
+
+        # Live mode setup
+        self.live_mode  = LIVE_MODE
+        self.executor   = None
+        self.live_port  = None
+
+        if self.live_mode and WALLET_PRIVATE_KEY:
+            try:
+                from solders.keypair import Keypair
+                import base58
+                kp = Keypair.from_bytes(base58.b58decode(WALLET_PRIVATE_KEY))
+                from trade_executor import TradeExecutor
+                self.executor  = TradeExecutor(kp)
+                self.live_port = LivePortfolio()
+                logger.warning(f"[LIVE MODE] Wallet: {str(kp.pubkey())}")
+            except Exception as e:
+                logger.error(f"Failed to load live wallet: {e} — falling back to DEMO")
+                self.live_mode = False
+        elif self.live_mode:
+            logger.error("LIVE_MODE=true but WALLET_PRIVATE_KEY not set — falling back to DEMO")
+            self.live_mode = False
+
+        self.portfolio = self.live_port if self.live_mode else DemoPortfolio()
 
         # Price history: deque per token
         self.price_history: dict[str, deque] = {
@@ -53,13 +80,23 @@ class TradingEngine:
     # ─── Lifecycle ────────────────────────────────────────────────────────────
 
     async def start(self):
-        """Initialise wallet, request airdrop, start price and analysis loops."""
-        logger.info("Starting AstralPrism Trading Engine...")
-        await self.sol_cli.setup()
+        """Initialise wallet, (optionally) sync live balances, start loops."""
+        logger.info(f"Starting AstralPrism Trading Engine [{'LIVE' if self.live_mode else 'DEMO'}]...")
 
-        if self.sol_cli.devnet_sol_balance < 0.1:
-            logger.info("Requesting devnet airdrop...")
-            await self.sol_cli.request_airdrop(1.0)
+        if self.live_mode and self.executor:
+            # Sync real balances from mainnet on startup
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                bals = await self.executor.get_token_balances(client)
+                if bals:
+                    self.live_port.balances = bals
+                    logger.info(f"[LIVE] Synced mainnet balances: {bals}")
+                else:
+                    logger.warning("[LIVE] Could not sync balances — check wallet has SOL")
+        else:
+            await self.sol_cli.setup()
+            if self.sol_cli.devnet_sol_balance < 0.1:
+                logger.info("Requesting devnet airdrop...")
+                await self.sol_cli.request_airdrop(1.0)
 
         self.running = True
         await asyncio.gather(
@@ -154,23 +191,25 @@ class TradingEngine:
         trade_record = {}
         if (
             signal.get("signal") in ("BUY", "SELL")
-            and signal.get("confidence", 0) >= 0.45
             and not self.paused
         ):
-            token = signal.get("token", "SOL")
-            # Get fresh quote for the token
-            if signal["signal"] == "BUY":
-                quote = await self.jup.get_quote("USDC", token, 10.0, MAX_SLIPPAGE_BPS) if \
-                        hasattr(self.jup, '_client') and self.jup._client else None
+            if self.live_mode:
+                trade_record = await self._execute_live_trade(signal)
             else:
-                quote = await self.jup.get_quote(token, "USDC", 0.1, MAX_SLIPPAGE_BPS) if \
-                        hasattr(self.jup, '_client') and self.jup._client else None
+                token = signal.get("token", "SOL")
+                if signal["signal"] == "BUY":
+                    quote = await self.jup.get_quote("USDC", token, 10.0, MAX_SLIPPAGE_BPS) if \
+                            hasattr(self.jup, '_client') and self.jup._client else None
+                else:
+                    quote = await self.jup.get_quote(token, "USDC", 0.1, MAX_SLIPPAGE_BPS) if \
+                            hasattr(self.jup, '_client') and self.jup._client else None
 
-            trade_record = self.portfolio.execute_demo_trade(
-                signal = signal,
-                quote  = quote or {},
-                prices = self.current_prices,
-            )
+                if signal.get("confidence", 0) >= 0.45:
+                    trade_record = self.portfolio.execute_demo_trade(
+                        signal = signal,
+                        quote  = quote or {},
+                        prices = self.current_prices,
+                    )
 
         await self._broadcast({
             "type":        "analysis_complete",
@@ -180,6 +219,87 @@ class TradingEngine:
             "prices":      self.current_prices,
             "ts":          time.time(),
         })
+
+    # ─── Live Trade Execution ─────────────────────────────────────────────────
+
+    async def _execute_live_trade(self, signal: dict) -> dict:
+        """
+        Execute a real mainnet swap using Jupiter + Phantom keypair.
+        Guards: loss cap, confidence threshold, fee reserve, throttle.
+        """
+        prices = self.current_prices
+
+        # 1. Risk check
+        allowed, reason = self.live_port.check_risk(signal, prices)
+        if not allowed:
+            logger.info(f"[LIVE] Trade blocked: {reason}")
+            await self._broadcast({"type": "trade_blocked", "reason": reason, "ts": time.time()})
+            return {}
+
+        token = signal.get("token", "SOL")
+        side  = signal["signal"]
+
+        # 2. Compute safe size
+        size = self.live_port.compute_trade_size(
+            side, token, prices,
+            size_pct = signal.get("suggestedSizePct", 15) / 100,
+        )
+        if size <= 0:
+            logger.info(f"[LIVE] Trade size computed as 0 — skipping")
+            return {}
+
+        # 3. Determine input/output for the swap
+        if side == "BUY":
+            # Spend USDC to buy token
+            input_sym, output_sym = "USDC", token
+            # size is in token units, convert to USDC spend
+            input_amt = size * prices.get(token, 1)
+        else:
+            # Sell token for USDC
+            input_sym, output_sym = token, "USDC"
+            input_amt = size
+
+        if input_amt < 0.01:
+            return {}
+
+        # 4. Broadcast pending
+        await self._broadcast({
+            "type":  "trade_pending",
+            "side":  side,
+            "token": token,
+            "size":  size,
+            "ts":    time.time(),
+        })
+
+        # 5. Execute via Jupiter
+        exec_result = await self.executor.execute_swap(input_sym, output_sym, input_amt)
+
+        if exec_result.get("success"):
+            # Sync real balances from chain
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    new_bals = await self.executor.get_token_balances(client)
+            except Exception:
+                new_bals = {}
+
+            trade = self.live_port.record_trade(exec_result, signal, new_bals)
+
+            # Check if loss cap was hit after this trade
+            if self.live_port.halted:
+                await self._broadcast({
+                    "type":   "bot_halted",
+                    "reason": self.live_port.halt_reason,
+                    "ts":     time.time(),
+                })
+            return trade
+        else:
+            logger.warning(f"[LIVE] Swap failed: {exec_result.get('error')}")
+            await self._broadcast({
+                "type":  "trade_failed",
+                "error": exec_result.get("error"),
+                "ts":    time.time(),
+            })
+            return {}
 
     # ─── Manual Trade ─────────────────────────────────────────────────────────
 
@@ -233,18 +353,34 @@ class TradingEngine:
     def get_state(self) -> dict:
         """Full state snapshot for REST polling."""
         prices = self.current_prices
+
+        if self.live_mode and self.live_port:
+            wallet_addr  = self.executor.pubkey
+            explorer_url = f"https://solscan.io/account/{wallet_addr}"
+            devnet_sol   = self.live_port.balances.get("SOL", 0)
+            trades       = self.live_port.trades[-50:]
+            portfolio    = self.live_port.to_dict(prices)
+        else:
+            wallet_addr  = self.sol_cli.public_key
+            explorer_url = self.sol_cli.explorer_url()
+            devnet_sol   = self.sol_cli.devnet_sol_balance
+            trades       = self.portfolio.trades[-50:]
+            portfolio    = self.portfolio.to_dict(prices)
+
         return {
-            "running":    self.running,
-            "paused":     self.paused,
-            "tick":       self.tick_count,
-            "wallet":     self.sol_cli.public_key,
-            "devnetSol":  self.sol_cli.devnet_sol_balance,
-            "explorerUrl": self.sol_cli.explorer_url(),
-            "portfolio":  self.portfolio.to_dict(prices),
-            "prices":     prices,
-            "history":    {k: list(v)[-30:] for k, v in self.price_history.items()},
-            "lastSignal": self.last_signal,
-            "trades":     self.portfolio.trades[-50:],
-            "isDemo":     self.nem._mock_mode,
-            "model":      "nvidia/nemotron-3-super-120b-a12b",
+            "running":     self.running,
+            "paused":      self.paused,
+            "tick":        self.tick_count,
+            "wallet":      wallet_addr,
+            "devnetSol":   devnet_sol,
+            "explorerUrl": explorer_url,
+            "portfolio":   portfolio,
+            "prices":      prices,
+            "history":     {k: list(v)[-30:] for k, v in self.price_history.items()},
+            "lastSignal":  self.last_signal,
+            "trades":      trades,
+            "isDemo":      self.nem._mock_mode,
+            "isLive":      self.live_mode,
+            "model":       "nvidia/nemotron-3-super-120b-a12b",
+            "lossCapUSD":  MAX_LOSS_USD if self.live_mode else None,
         }

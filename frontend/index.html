@@ -10,6 +10,18 @@
   <link rel="stylesheet" href="/static/styles.css"/>
 </head>
 <body>
+  <!-- Live Mode Warning Banner -->
+  <div id="liveBanner" class="live-banner hidden">
+    <span class="live-banner-icon">⚡ LIVE MAINNET</span>
+    <span>Real funds at risk — Solana mainnet via Jupiter</span>
+    <div class="loss-budget">
+      <span>Loss budget remaining:</span>
+      <span id="lossBudget" class="loss-budget-val">$10.00</span>
+      <div class="loss-bar-wrap"><div id="lossBar" class="loss-bar"></div></div>
+    </div>
+    <button class="btn btn--halt" onclick="haltBot()">🛑 HALT BOT</button>
+  </div>
+
   <!-- Header -->
   <header class="header">
     <div class="header-left">

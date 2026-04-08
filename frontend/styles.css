@@ -23,6 +23,35 @@
 }
 
 html, body { height: 100%; }
+
+/* ─── Live Banner ────────────────────────────────────── */
+.live-banner {
+  display: flex; align-items: center; gap: 20px;
+  background: linear-gradient(135deg, rgba(255,79,107,0.15), rgba(255,79,107,0.05));
+  border-bottom: 1px solid rgba(255,79,107,0.4);
+  padding: 10px 24px;
+  font-size: 13px;
+  animation: livePulse 2s ease-in-out infinite;
+}
+.live-banner.hidden { display: none; }
+.live-banner.halted { background: rgba(255,79,107,0.25); animation: none; }
+.live-banner-icon { font-weight: 700; color: var(--red); font-size: 14px; }
+@keyframes livePulse {
+  0%,100% { border-color: rgba(255,79,107,0.4); }
+  50%      { border-color: rgba(255,79,107,0.8); }
+}
+.loss-budget { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.loss-budget-val { font-family: var(--mono); font-weight: 700; color: var(--green); font-size: 15px; }
+.loss-bar-wrap { width: 120px; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; }
+.loss-bar { height: 100%; background: var(--green); border-radius: 3px; transition: width 0.5s, background 0.3s; }
+.btn--halt {
+  background: rgba(255,79,107,0.2); color: var(--red);
+  border: 1px solid rgba(255,79,107,0.5);
+  padding: 6px 14px; border-radius: var(--radius); font-weight: 700;
+  cursor: pointer; font-size: 13px;
+}
+.btn--halt:hover { background: rgba(255,79,107,0.35); }
+.trade-table .isLive { color: var(--red); font-size: 10px; }
 body {
   font-family: var(--font);
   background: var(--bg);

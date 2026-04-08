@@ -70,3 +70,15 @@ DEMO_USDC_BALANCE     = 100.0       # Starting simulated USDC
 DEMO_SOL_BALANCE      = 2.0         # Starting simulated SOL (devnet)
 MAX_SLIPPAGE_BPS      = 50          # 0.5% slippage tolerance
 AIRDROP_SOL           = 1           # SOL to request from devnet airdrop
+
+# ─── Live Trading (mainnet) ────────────────────────────────────────────────────
+# LIVE_MODE=true executes real swaps on Solana mainnet via Jupiter
+# Set WALLET_PRIVATE_KEY to a DEDICATED BURNER WALLET — never your main wallet
+LIVE_MODE            = os.getenv("LIVE_MODE", "false").lower() == "true"
+WALLET_PRIVATE_KEY   = os.getenv("WALLET_PRIVATE_KEY", "")   # base58 Phantom private key
+MAX_LOSS_USD         = float(os.getenv("MAX_LOSS_USD", "10")) # Hard kill at $10 loss
+MIN_CONFIDENCE_LIVE  = 0.65         # Only trade if AI confidence >= 65%
+MAX_TRADE_PCT        = 0.20         # Max 20% of portfolio per trade
+MAX_TRADES_PER_MIN   = 2            # Throttle: max 2 trades per minute
+MIN_SOL_FOR_FEES     = 0.005        # Keep this much SOL for gas fees
+SWAP_PRIORITY_FEE    = 100_000      # microlamports priority fee

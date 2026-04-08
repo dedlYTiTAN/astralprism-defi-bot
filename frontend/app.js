@@ -97,6 +97,7 @@ function mergeState(msg) {
   if (msg.lastSignal) state.lastSignal = msg.lastSignal;
   if (msg.wallet)    setWalletInfo(msg);
   if (msg.isDemo !== undefined) setModelMode(msg.isDemo);
+  if (msg.isLive !== undefined) setLiveMode(msg.isLive, msg.portfolio || state.portfolio);
   if (msg.tick)      state.tick = msg.tick;
 }
 
@@ -376,6 +377,41 @@ function setModelMode(isDemo) {
   const tag = document.getElementById('modeLabel');
   tag.textContent = isDemo ? 'DEMO' : 'LIVE AI';
   tag.style.color = isDemo ? 'var(--yellow)' : 'var(--green)';
+}
+
+function setLiveMode(isLive, portfolio) {
+  const banner = document.getElementById('liveBanner');
+  if (!isLive) { banner.classList.add('hidden'); return; }
+  banner.classList.remove('hidden');
+
+  const cap       = portfolio?.lossCapUSD || 10;
+  const remaining = portfolio?.lossRemaining ?? cap;
+  const pct       = Math.max(0, Math.min(100, (remaining / cap) * 100));
+
+  const budgetEl = document.getElementById('lossBudget');
+  const barEl    = document.getElementById('lossBar');
+
+  budgetEl.textContent = `$${remaining.toFixed(2)}`;
+  budgetEl.style.color = remaining > 5 ? 'var(--green)' : remaining > 2 ? 'var(--yellow)' : 'var(--red)';
+  barEl.style.width    = pct + '%';
+  barEl.style.background = remaining > 5 ? 'var(--green)' : remaining > 2 ? 'var(--yellow)' : 'var(--red)';
+
+  // Halt state
+  if (portfolio?.halted) {
+    banner.classList.add('halted');
+    banner.querySelector('.live-banner-icon').textContent = '🛑 BOT HALTED';
+    toast(`Bot halted: ${portfolio.haltReason}`, 'sell');
+  }
+}
+
+async function haltBot() {
+  if (!confirm('Halt the bot immediately? All pending trades will stop.')) return;
+  try {
+    await fetch('/api/bot/pause', { method: 'POST' });
+    toast('🛑 Bot halted — no further trades will execute', 'sell');
+    document.getElementById('liveBanner').classList.add('halted');
+    document.querySelector('.live-banner-icon').textContent = '🛑 BOT HALTED';
+  } catch(e) { toast('Halt request failed', 'info'); }
 }
 
 function showThinking(show) {
