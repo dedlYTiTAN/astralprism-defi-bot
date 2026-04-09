@@ -1,201 +1,245 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>AstralPrism — DeFi Bot</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"/>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <!-- TradingView Lightweight Charts -->
+  <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
   <link rel="stylesheet" href="/static/styles.css"/>
 </head>
 <body>
-  <!-- Live Mode Warning Banner -->
+  <!-- Aurora particle background -->
+  <canvas id="auroraCanvas"></canvas>
+
+  <!-- Live Mode Banner -->
   <div id="liveBanner" class="live-banner hidden">
-    <span class="live-banner-icon">⚡ LIVE MAINNET</span>
-    <span>Real funds at risk — Solana mainnet via Jupiter</span>
-    <div class="loss-budget">
-      <span>Loss budget remaining:</span>
-      <span id="lossBudget" class="loss-budget-val">$10.00</span>
-      <div class="loss-bar-wrap"><div id="lossBar" class="loss-bar"></div></div>
+    <div class="live-banner-left">
+      <span class="live-dot"></span>
+      <span class="live-label">LIVE MAINNET</span>
+      <span class="live-sub">Real funds · Solana · Jupiter</span>
     </div>
-    <button class="btn btn--halt" onclick="haltBot()">🛑 HALT BOT</button>
+    <div class="loss-budget-wrap">
+      <span class="loss-label">Loss Budget</span>
+      <div class="loss-bar-track"><div id="lossBar" class="loss-bar-fill"></div></div>
+      <span id="lossBudget" class="loss-amount">$10.00</span>
+    </div>
+    <button class="halt-btn" onclick="haltBot()">⬛ HALT</button>
   </div>
 
   <!-- Header -->
-  <header class="header">
-    <div class="header-left">
-      <div class="logo">
-        <span class="logo-icon">◈</span>
-        <span class="logo-text">AstralPrism</span>
-        <span class="logo-sub">DeFi Bot</span>
+  <header class="header glass">
+    <div class="header-brand">
+      <div class="prism-icon">◈</div>
+      <div class="brand-text">
+        <span class="brand-name">AstralPrism</span>
+        <span class="brand-tagline">DeFi Intelligence</span>
       </div>
-      <div class="network-badge">
-        <span class="dot dot--devnet"></span>
-        <span>Solana Devnet</span>
-      </div>
-    </div>
-    <div class="header-center">
-      <div class="model-pill">
-        <span class="model-icon">⬡</span>
-        <span id="modelLabel">nvidia/nemotron-3-super-120b-a12b</span>
-        <span class="model-sep">|</span>
-        <span id="modeLabel" class="mode-tag">DEMO</span>
+      <div class="network-pill" id="networkPill">
+        <span class="net-dot"></span>
+        <span id="networkLabel">Solana Devnet</span>
       </div>
     </div>
-    <div class="header-right">
-      <div class="status-cluster">
-        <span id="statusDot" class="dot dot--connecting"></span>
-        <span id="statusLabel">Connecting...</span>
+    <div class="header-model">
+      <div class="model-badge">
+        <span class="model-hex">⬡</span>
+        <span>nvidia/nemotron-3-super-120b</span>
+        <div class="mode-divider"></div>
+        <span id="modeTag" class="mode-tag">DEMO</span>
       </div>
-      <button id="btnPause" class="btn btn--ghost" onclick="togglePause()">⏸ Pause Bot</button>
-      <button class="btn btn--primary" onclick="requestAirdrop()">⚡ Airdrop SOL</button>
+    </div>
+    <div class="header-actions">
+      <div class="status-pill" id="statusPill">
+        <span id="statusDot" class="s-dot connecting"></span>
+        <span id="statusText">Connecting</span>
+      </div>
+      <button class="btn-ghost" id="btnPause" onclick="togglePause()">⏸ Pause</button>
+      <button class="btn-primary" onclick="requestAirdrop()">⚡ Airdrop</button>
     </div>
   </header>
 
-  <!-- Main Grid -->
-  <main class="grid">
+  <!-- Main layout -->
+  <main class="layout">
 
-    <!-- Left: Price Feed -->
-    <aside class="panel panel--tokens">
-      <div class="panel-title">Live Prices <span class="tag tag--live">LIVE</span></div>
-      <div id="tokenCards" class="token-list">
-        <div class="token-card skeleton"></div>
-        <div class="token-card skeleton"></div>
-        <div class="token-card skeleton"></div>
-        <div class="token-card skeleton"></div>
+    <!-- ── Left: tokens + wallet ── -->
+    <aside class="col-left">
+      <div class="panel glass token-panel">
+        <div class="panel-header">
+          <span class="panel-title">Markets</span>
+          <span class="live-tag" id="liveTag">● LIVE</span>
+        </div>
+        <div id="tokenList" class="token-list">
+          <div class="token-skeleton"></div>
+          <div class="token-skeleton"></div>
+          <div class="token-skeleton"></div>
+          <div class="token-skeleton"></div>
+        </div>
       </div>
 
-      <!-- Wallet info -->
-      <div class="panel-title mt-16">Devnet Wallet</div>
-      <div class="wallet-box">
-        <div class="wallet-addr" id="walletAddr">Loading...</div>
-        <div class="wallet-row">
-          <span>Balance</span>
-          <span id="devnetSol" class="mono">— SOL</span>
+      <!-- Indicators panel -->
+      <div class="panel glass ind-panel">
+        <div class="panel-header"><span class="panel-title">Indicators</span><span id="indToken" class="panel-sub">SOL</span></div>
+        <div id="indGrid" class="ind-grid">
+          <div class="ind-card"><div class="ind-val" id="rsiVal">—</div><div class="ind-key">RSI(14)</div><div class="ind-bar-wrap"><div id="rsiBar" class="ind-bar"></div></div></div>
+          <div class="ind-card"><div class="ind-val" id="emaVal">—</div><div class="ind-key">EMA Cross</div></div>
+          <div class="ind-card"><div class="ind-val" id="macdVal">—</div><div class="ind-key">MACD</div></div>
+          <div class="ind-card"><div class="ind-val" id="bbVal">—</div><div class="ind-key">Bollinger</div></div>
+          <div class="ind-card"><div class="ind-val" id="momVal">—</div><div class="ind-key">Momentum</div></div>
+          <div class="ind-card"><div class="ind-val" id="volVal">—</div><div class="ind-key">Volatility</div></div>
         </div>
-        <a id="explorerLink" href="#" target="_blank" class="explorer-link">View on Explorer ↗</a>
+      </div>
+
+      <!-- Wallet -->
+      <div class="panel glass wallet-panel">
+        <div class="panel-header"><span class="panel-title">Wallet</span><a id="explorerLink" href="#" target="_blank" class="explorer-link">Explorer ↗</a></div>
+        <div class="wallet-addr" id="walletAddr">—</div>
+        <div class="wallet-row"><span>SOL Balance</span><span id="walletSol" class="mono green">— SOL</span></div>
+        <button class="btn-airdrop-sm" onclick="requestAirdrop()">Request Airdrop</button>
       </div>
     </aside>
 
-    <!-- Center: Chart + Signal -->
-    <section class="panel panel--chart">
-      <div class="chart-header">
-        <div class="chart-tabs" id="chartTabs">
-          <button class="chart-tab active" onclick="switchChart('SOL')">SOL</button>
-          <button class="chart-tab" onclick="switchChart('JUP')">JUP</button>
-          <button class="chart-tab" onclick="switchChart('BONK')">BONK</button>
-          <button class="chart-tab" onclick="switchChart('WIF')">WIF</button>
+    <!-- ── Center: chart + signal ── -->
+    <section class="col-center">
+      <!-- Chart -->
+      <div class="panel glass chart-panel">
+        <div class="chart-topbar">
+          <div class="chart-tabs" id="chartTabs">
+            <button class="ctab active" onclick="switchChart('SOL')">SOL</button>
+            <button class="ctab" onclick="switchChart('JUP')">JUP</button>
+            <button class="ctab" onclick="switchChart('BONK')">BONK</button>
+            <button class="ctab" onclick="switchChart('WIF')">WIF</button>
+          </div>
+          <div class="chart-price-info" id="chartPriceInfo">
+            <span class="cpi-price" id="cpiPrice">—</span>
+            <span class="cpi-change" id="cpiChange">—</span>
+            <span class="cpi-type" id="cpiType">CANDLE</span>
+          </div>
         </div>
-        <div id="chartMeta" class="chart-meta"></div>
-      </div>
-      <div class="chart-wrap">
-        <canvas id="priceChart"></canvas>
-      </div>
-
-      <!-- AI Signal Bar -->
-      <div class="signal-bar" id="signalBar">
-        <div class="signal-icon" id="signalIcon">—</div>
-        <div class="signal-details">
-          <div class="signal-main">
-            <span id="signalLabel">Awaiting Nemotron analysis...</span>
-            <span id="signalToken" class="signal-token"></span>
-          </div>
-          <div id="signalReason" class="signal-reason">Model is warming up...</div>
-        </div>
-        <div class="signal-stats">
-          <div class="stat">
-            <div class="stat-val" id="confVal">—</div>
-            <div class="stat-key">Confidence</div>
-          </div>
-          <div class="stat">
-            <div class="stat-val" id="riskVal">—</div>
-            <div class="stat-key">Risk</div>
-          </div>
-          <div class="stat">
-            <div class="stat-val" id="condVal">—</div>
-            <div class="stat-key">Market</div>
-          </div>
+        <div id="tvChart" class="tv-chart"></div>
+        <div id="thinkingOverlay" class="thinking-overlay hidden">
+          <div class="think-ring"></div>
+          <span>Nemotron 3 Super · Reasoning...</span>
         </div>
       </div>
 
-      <!-- Thinking Overlay -->
-      <div id="thinkingOverlay" class="thinking-overlay hidden">
-        <div class="thinking-spinner"></div>
-        <span>Nemotron 3 Super is reasoning...</span>
+      <!-- Signal bar -->
+      <div class="panel glass signal-panel" id="signalPanel">
+        <!-- Confidence gauge -->
+        <div class="gauge-wrap">
+          <svg viewBox="0 0 100 60" class="gauge-svg">
+            <path d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="8" stroke-linecap="round"/>
+            <path id="gaugeArc" d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#6378ff" stroke-width="8" stroke-linecap="round"
+                  stroke-dasharray="126" stroke-dashoffset="126" style="transition: stroke-dashoffset 0.8s ease, stroke 0.5s"/>
+            <text x="50" y="54" text-anchor="middle" class="gauge-text" id="gaugePct">0%</text>
+          </svg>
+          <div class="gauge-label">Confidence</div>
+        </div>
+
+        <!-- Signal info -->
+        <div class="signal-main">
+          <div class="sig-side-badge" id="sigBadge">—</div>
+          <div class="sig-details">
+            <div class="sig-token-row">
+              <span class="sig-token" id="sigToken">Awaiting signal...</span>
+              <span class="sig-score" id="sigScore"></span>
+            </div>
+            <div class="sig-reason" id="sigReason">Model is warming up, building indicator history...</div>
+          </div>
+        </div>
+
+        <!-- Signal stats -->
+        <div class="sig-stats">
+          <div class="sig-stat"><div class="ss-val" id="ssCond">—</div><div class="ss-key">Market</div></div>
+          <div class="sig-stat"><div class="ss-val" id="ssRisk">—</div><div class="ss-key">Risk</div></div>
+          <div class="sig-stat"><div class="ss-val" id="ssTgt">—</div><div class="ss-key">Target</div></div>
+          <div class="sig-stat"><div class="ss-val" id="ssStop">—</div><div class="ss-key">Stop</div></div>
+          <div class="sig-stat"><div class="ss-val" id="ssTrail">—</div><div class="ss-key">Trail</div></div>
+        </div>
+      </div>
+
+      <!-- Correlation row -->
+      <div class="panel glass corr-panel">
+        <div class="panel-header"><span class="panel-title">SOL Correlation</span></div>
+        <div id="corrRow" class="corr-row"></div>
       </div>
     </section>
 
-    <!-- Right: Portfolio + Manual Trade -->
-    <aside class="panel panel--right">
-      <div class="panel-title">Portfolio</div>
-      <div class="portfolio-grid">
-        <div class="port-card">
-          <div class="port-val" id="portTotal">$0.00</div>
-          <div class="port-key">Total Value</div>
+    <!-- ── Right: portfolio + trade ── -->
+    <aside class="col-right">
+      <!-- Portfolio -->
+      <div class="panel glass port-panel">
+        <div class="panel-header"><span class="panel-title">Portfolio</span><span id="portMode" class="panel-sub">DEMO</span></div>
+        <div class="port-value-big" id="portValue">$0.00</div>
+        <div class="port-pnl" id="portPnl">+$0.00 (0.00%)</div>
+        <div class="port-grid">
+          <div class="port-item"><div class="pi-val" id="piSol">0.00</div><div class="pi-key">SOL</div></div>
+          <div class="port-item"><div class="pi-val" id="piUsdc">$0.00</div><div class="pi-key">USDC</div></div>
+          <div class="port-item"><div class="pi-val" id="piTrades">0</div><div class="pi-key">Trades</div></div>
+          <div class="port-item"><div class="pi-val" id="piWin">—</div><div class="pi-key">Win Rate</div></div>
         </div>
-        <div class="port-card">
-          <div class="port-val" id="portPnl">$0.00</div>
-          <div class="port-key">P&amp;L</div>
-        </div>
-        <div class="port-card">
-          <div class="port-val" id="portSol">0.00</div>
-          <div class="port-key">SOL</div>
-        </div>
-        <div class="port-card">
-          <div class="port-val" id="portUsdc">$0.00</div>
-          <div class="port-key">USDC</div>
+        <!-- Trailing stops active -->
+        <div id="trailingSection" class="trailing-section hidden">
+          <div class="panel-title" style="margin-top:12px">Active Trailing Stops</div>
+          <div id="trailingList" class="trailing-list"></div>
         </div>
       </div>
 
-      <!-- Manual Trade Panel -->
-      <div class="panel-title mt-16">Manual Trade</div>
-      <div class="trade-form">
-        <div class="form-row">
-          <select id="tradeToken" class="form-select">
+      <!-- Manual trade -->
+      <div class="panel glass trade-panel">
+        <div class="panel-header"><span class="panel-title">Manual Trade</span></div>
+        <div class="trade-form">
+          <select id="tradeToken" class="form-sel">
             <option>SOL</option><option>JUP</option><option>BONK</option><option>WIF</option>
           </select>
-          <input id="tradeSize" type="number" value="10" min="1" max="100" class="form-input" placeholder="Size %"/>
-        </div>
-        <div class="form-row">
-          <button class="btn btn--buy" onclick="manualTrade('BUY')">▲ BUY</button>
-          <button class="btn btn--sell" onclick="manualTrade('SELL')">▼ SELL</button>
+          <div class="size-row">
+            <span class="size-label">Size</span>
+            <input id="tradeSize" type="range" min="1" max="25" value="10" class="size-slider" oninput="updateSizeLabel()"/>
+            <span id="sizeLabel" class="size-val">10%</span>
+          </div>
+          <div class="trade-btns">
+            <button class="tbtn buy" onclick="manualTrade('BUY')">▲ BUY</button>
+            <button class="tbtn sell" onclick="manualTrade('SELL')">▼ SELL</button>
+          </div>
         </div>
       </div>
 
-      <!-- PnL Chart -->
-      <div class="panel-title mt-16">P&amp;L History</div>
-      <div class="pnl-chart-wrap">
-        <canvas id="pnlChart"></canvas>
+      <!-- P&L sparkline -->
+      <div class="panel glass pnl-panel">
+        <div class="panel-header"><span class="panel-title">P&amp;L History</span><span id="pnlBadge" class="pnl-badge">$0.00</span></div>
+        <div id="pnlChart" class="pnl-chart"></div>
       </div>
     </aside>
 
-    <!-- Bottom: Trade History -->
-    <section class="panel panel--trades">
-      <div class="panel-title">
-        Trade History
-        <span id="tradeCount" class="tag">0 trades</span>
-      </div>
-      <div class="table-wrap">
-        <table class="trade-table">
-          <thead>
-            <tr>
-              <th>#</th><th>Time</th><th>Side</th><th>Token</th>
-              <th>Size</th><th>Price</th><th>Cost</th>
-              <th>Confidence</th><th>Market</th><th>Route</th><th>Status</th>
-            </tr>
-          </thead>
-          <tbody id="tradeBody">
-            <tr><td colspan="11" class="empty-row">No trades yet — bot is analysing markets...</td></tr>
-          </tbody>
-        </table>
+    <!-- ── Bottom: trade history ── -->
+    <section class="col-bottom">
+      <div class="panel glass trades-panel">
+        <div class="panel-header">
+          <span class="panel-title">Trade History</span>
+          <span id="tradeCountBadge" class="count-badge">0 trades</span>
+          <span id="trailBadge" class="trail-badge hidden">🔁 Trailing Active</span>
+        </div>
+        <div class="table-scroll">
+          <table class="trade-table">
+            <thead>
+              <tr>
+                <th>#</th><th>Time</th><th>Type</th><th>Token</th>
+                <th>Size</th><th>Price</th><th>Cost (USDC)</th>
+                <th>Confidence</th><th>TA Score</th><th>Market</th><th>Route</th><th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="tradeBody">
+              <tr><td colspan="12" class="empty-cell">No trades yet — building indicator history...</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
 
   </main>
 
-  <!-- Toast container -->
-  <div id="toasts"></div>
+  <div id="toastContainer"></div>
 
   <script src="/static/app.js"></script>
 </body>
